@@ -1,4 +1,5 @@
 import paddle
+import shared
 
 # Reverse mode AD
 # 
@@ -50,42 +51,115 @@ OpStrength = {'const', 'linear', 'poly', 'nonlinear'}
 
 stren_tab = {'const': [],
              'linear': [
-                myops.add,
-                myops.multiply,
-                myops.subtract,
-                myops.matmul
+                'elementwise_add',
+                'elementwise_mul',
+                'elementwise_sub',
+                'matmul_V2'
              ],
              'poly': [
-                myops.power  
+                'elementwise_pow' 
              ],
              'nonlinear': [
-                myops.exp,
-                myops.tanh
-             ] }
+                'exp',
+                'tanh'
+             ]}
 
-stren_lookup = {}
-op_vjps = {}
+# stren_lookup = {}
+# op_vjps = {}
 
-def build_strenlookup():
-  stren_lookup.update((op, stren) for stren, op in stren_tab.items())
+# def build_strenlookup():
+#   stren_lookup.update((op, stren) for stren, op in stren_tab.items())
 
-def defvjp(fn, *makers):
-  op_vjps[fn] = makers
+class OpVJPs:
+  vjp_mappings = {}
 
-defvjp(myops.tanh, lambda x, y: lambda v: v - v * y**2)
-defvjp(myops.exp, lambda x, y: lambda v: v * y)
+  @classmethod
+  def defvjp(cls, fn, *makers):
+    OpVJPs.vjp_mappings[fn] = makers
 
-tc_stack = []
+  @classmethod
+  def get_vjpmakers(cls, fn):
+    # print(OpVJPs.vjp_mappings)
+    return OpVJPs.vjp_mappings[fn]
 
 class tracing_context:
   def __init__(self):
-    self.promises = {}
-    self.kstack = []  
+    self.grads = {}
+    self.k = None
 
-  def make_vjp_k(self, vjp, x_pos, y, *xs):
-    def vjp_k(k):
-      vjp_fn = vjp(*xs)
-      dx = vjp_fn(self.promises[y])
-      self.promises[xs[x_pos]] = dx
+  def get_closure(self):
+    return self.k
+
+  def set_closure(self, k):
+    self.k = k
+
+  def make_vjp_k(self, vjp, k, x_pos, y, *xs):
+    def vjp_k():
+      print(f'   Start vjp {vjp}')
+      vjp_fn = vjp(y, *xs)
+      dx = vjp_fn(self.grads[y])
+      print(f'   End vjp {vjp}')
+      self.grads[xs[x_pos]] = dx
       return k()
     return vjp_k
+
+def vjp(f, *xs):
+  tc_stack = shared.tc_stack
+
+  tc = tracing_context()
+  tc_stack.append(tc)
+
+  print(f'VJP for {f}')
+
+  print(f'Pusing tc_stack  {tc_stack}')
+
+  def return_grads():
+    # pop the tc stack when grad values are evaluated.
+    # print(tc_stack)
+    # print(tc)
+    tc_stack.remove(tc)
+    return [tc.grads[x] for x in xs]
+
+  tc.k = return_grads
+
+  for x in xs:
+    tc.grads[x] = None
+
+  # The tc stack grows as higher order of grads are building up the computation graph.
+  res = f(*xs)
+
+  def vjp_fn(dy):
+    print(f' vjp_fn for {f}')
+    tc.grads[res] = dy
+    k = tc.get_closure()
+    print(f'closure in {tc}: {k}')
+    return k()
+
+  return res, vjp_fn
+
+def grad(f):
+  def grad_f(*xs):
+    _, jvp_fn = vjp(f, *xs)
+    return jvp_fn
+  return grad_f
+
+if __name__ == '__main__':
+
+  x = paddle.rand([2])
+  v = paddle.rand([2])
+
+  from wrapper import exp, tanh, mul
+  # print(exp)
+  def f(x):
+    return exp(x)
+
+  res, vjp_fun = vjp(f, x)
+  print(vjp_fun(v))
+  f_x = grad(f)
+  print(f'f_x(x)(v) = {f_x(x)(v)}')
+
+  f_xx = grad(grad(f))
+  print(f'f_xx(x)(v) = {f_xx(x)(v)}')
+
+  # f_xxx = grad(grad(grad(f)))
+  # print(f'f_xxx(x)(v) = {f_xxx(x)(v)}')
