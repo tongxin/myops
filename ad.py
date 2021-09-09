@@ -1,4 +1,5 @@
-import paddle
+# import paddle
+import torch
 import shared
 
 # Reverse mode AD
@@ -95,29 +96,24 @@ class tracing_context:
 
   def make_vjp_k(self, vjp, k, x_pos, y, *xs):
     def vjp_k():
-      print(f'   Start vjp {vjp}')
       vjp_fn = vjp(y, *xs)
+      print(f'[Reverse op begin] {vjp_fn}')
       dx = vjp_fn(self.grads[y])
-      print(f'   End vjp {vjp}')
       self.grads[xs[x_pos]] = dx
+      print(f'[Reverse op end  ] {vjp_fn}')
+      print(f'[Next reverse ...] {k}')
       return k()
     return vjp_k
 
-def vjp(f, *xs):
+def vjp(f, *xs, y_argnum=0):
   tc_stack = shared.tc_stack
 
   tc = tracing_context()
   tc_stack.append(tc)
 
-  print(f'VJP for {f}')
-
-  print(f'Pusing tc_stack  {tc_stack}')
+  print(f'[VJP start] {f}')
 
   def return_grads():
-    # pop the tc stack when grad values are evaluated.
-    # print(tc_stack)
-    # print(tc)
-    tc_stack.remove(tc)
     return [tc.grads[x] for x in xs]
 
   tc.k = return_grads
@@ -126,40 +122,51 @@ def vjp(f, *xs):
     tc.grads[x] = None
 
   # The tc stack grows as higher order of grads are building up the computation graph.
+  
   res = f(*xs)
+  
+  if isinstance(res, list):
+    res = res[y_argnum]
 
   def vjp_fn(dy):
-    print(f' vjp_fn for {f}')
     tc.grads[res] = dy
     k = tc.get_closure()
-    print(f'closure in {tc}: {k}')
+    print(f'[VJP_FN for {f}] == closure in {tc}: {k}')
     return k()
+
+  shared.tc_stack.pop()
+  print(f'[VJP end  ] {f}')
 
   return res, vjp_fn
 
 def grad(f):
   def grad_f(*xs):
-    _, jvp_fn = vjp(f, *xs)
-    return jvp_fn
+    res, vjp_fn = vjp(f, *xs)
+    while isinstance(res, list):
+      res = res[0]
+    return vjp_fn(torch.ones_like(res))
   return grad_f
 
 if __name__ == '__main__':
 
-  x = paddle.rand([2])
-  v = paddle.rand([2])
+  # x = paddle.rand([2])
+  # v = paddle.rand([2])
+  x = torch.rand(2)
+  v = torch.rand(2)
 
   from wrapper import exp, tanh, mul
   # print(exp)
-  def f(x):
+  def foo(x):
     return exp(x)
 
-  res, vjp_fun = vjp(f, x)
+  res, vjp_fun = vjp(foo, x)
   print(vjp_fun(v))
-  f_x = grad(f)
-  print(f'f_x(x)(v) = {f_x(x)(v)}')
+  f_x = grad(foo)
+  print(f'f_x(x) = {f_x(x)}')
 
-  f_xx = grad(grad(f))
-  print(f'f_xx(x)(v) = {f_xx(x)(v)}')
+  f_xx = grad(grad(foo))
+  print(f'f_xx = {f_xx}')
+  print(f'f_xx(x) = {f_xx(x)}')
 
-  # f_xxx = grad(grad(grad(f)))
-  # print(f'f_xxx(x)(v) = {f_xxx(x)(v)}')
+  f_xxx = grad(grad(grad(foo)))
+  print(f'f_xxx(x) = {f_xxx(x)}')

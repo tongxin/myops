@@ -1,6 +1,7 @@
 from functools import wraps
-import paddle
-from paddle.fluid.core import ops
+# import paddle
+# from paddle.fluid.core import ops
+import torch
 import ad
 import shared
 
@@ -18,13 +19,16 @@ op_names = [
             ]
 
 def exp(x):
-  return paddle.exp(x)
+  return torch.exp(x)
+  # return paddle.exp(x)
   
 def tanh(x):
-  return paddle.tanh(x)
+  return torch.tanh(x)
+  # return paddle.tanh(x)
 
 def mul(x, y):
-  return paddle.multiply(x, y)
+  return torch.mul(x, y)
+  # return paddle.multiply(x, y)
 
 # Wrap with tracing context
 def check_tracing(op, op_name):
@@ -38,10 +42,8 @@ def check_tracing(op, op_name):
 
     tc_stack = shared.tc_stack
 
-    print(f'Start {op}')
-    print(f'tc_stack {tc_stack}')
+    print(f'[Forward op] {op}')
     res = op(*args, **kwargs)
-    print(f'End {op}')
 
     if not tc_stack:
       return res
@@ -50,10 +52,11 @@ def check_tracing(op, op_name):
     # positional params to track the grads on
     argnums = [argnum for argnum, x in enumerate(args) if x in tc.grads]
 
+    print(f'[Building reverse] {op}')  
     for i in argnums:
       vjp = vjp_makers[i]
       tc.set_closure(tc.make_vjp_k(vjp, tc.k, i, res, *args))
-      print(f'Made vjp in {tc}, returning tc.k = {tc.get_closure()} ')
+      print(f'  |___ built in closure {tc.get_closure()} in tc: {tc} ')
 
     tc.grads[res] = None
 
