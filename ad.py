@@ -170,3 +170,6 @@ if __name__ == '__main__':
 
   f_xxx = grad(grad(grad(foo)))
   print(f'f_xxx(x) = {f_xxx(x)}')
+
+  f_xxxx = grad(grad(grad(grad(foo))))
+  print(f'f_xxxx(x) = {f_xxxx(x)}')
