@@ -159,17 +159,32 @@ if __name__ == '__main__':
   def foo(x):
     return exp(x)
 
+  # Fowllowing demonstrates a TTJ pattern. eg, Transform, Trace, JIT
+
   res, vjp_fun = vjp(foo, x)
   print(vjp_fun(v))
   f_x = grad(foo)
   print(f'f_x(x) = {f_x(x)}')
 
+  traced_f_x = torch.jit.trace(f_x, (x))
+
+  print(f'traced_f_x(x) - {traced_f_x(x)}')
+
+  jitted_f_x = torch.jit.script(traced_f_x)
+
+  print(f'jitted_f_x(x) - {jitted_f_x(x)}')
+  print(jitted_f_x.graph)
+
   f_xx = grad(grad(foo))
   print(f'f_xx = {f_xx}')
   print(f'f_xx(x) = {f_xx(x)}')
 
-  f_xxx = grad(grad(grad(foo)))
-  print(f'f_xxx(x) = {f_xxx(x)}')
+  traced_f_xx = torch.jit.trace(f_xx, (x))
+  jitted_f_xx = torch.jit.script(traced_f_xx)
+  print(f'jitted_f_xx(x) - {jitted_f_xx(x)}')
 
-  f_xxxx = grad(grad(grad(grad(foo))))
-  print(f'f_xxxx(x) = {f_xxxx(x)}')
+  # f_xxx = grad(grad(grad(foo)))
+  # print(f'f_xxx(x) = {f_xxx(x)}')
+
+  # f_xxxx = grad(grad(grad(grad(foo))))
+  # print(f'f_xxxx(x) = {f_xxxx(x)}')
